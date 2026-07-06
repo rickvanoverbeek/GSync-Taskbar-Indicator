@@ -8,10 +8,13 @@ glance even when no game or app is running.
 
 | Icon | State | Meaning |
 |------|-------|---------|
-| 🟢 Green  | **Active**      | Variable refresh (G-Sync) is driving a display **right now** — a game/app is presenting with VRR. |
-| 🟠 Amber  | **On (idle)**   | G-Sync is enabled and ready, but nothing is currently using it. |
-| ⚪ Gray   | **Off**         | A G-Sync-capable display was found but adaptive sync is turned off for it. |
-| ⚫ Dim    | **Unavailable** | No NVIDIA GPU/driver, or no display reports G-Sync support. |
+| 🟢 Green  | **Active**      | Variable refresh (G-Sync) is engaged **right now** — a game/app is presenting with VRR. |
+| 🟠 Amber  | **On (idle)**   | A G-Sync-capable display is present and ready, but VRR isn't engaged at the moment (e.g. sitting on the desktop). |
+| ⚪ Gray   | **Unavailable** | No NVIDIA GPU/driver, or no display reports G-Sync / adaptive-sync support. |
+
+> Note: NVIDIA's driver reports adaptive sync as "engaged this instant," not "enabled in
+> settings." On the desktop a G-Sync monitor normally shows **amber** and turns **green**
+> when a fullscreen (or windowed, depending on your G-Sync mode) app actually drives VRR.
 
 Hover the icon for a summary, **double-click** it for a per-display breakdown, or
 right-click for the menu.

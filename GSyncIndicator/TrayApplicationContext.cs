@@ -113,10 +113,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private static string DescribeDisplay(DisplayStatus d)
     {
         string name = $"Display 0x{d.DisplayId:X8}" + (d.IsPrimary ? " (primary)" : "");
-        string state = !d.Supported ? "no G-Sync"
-                     : d.ActiveNow   ? "ACTIVE"
-                     : d.Enabled     ? "on (idle)"
-                                     : "off";
+        string state = !d.Capable  ? "no G-Sync"
+                     : d.ActiveNow ? "ACTIVE"
+                                   : "on (idle)";
         return $"{name} — {state}";
     }
 
@@ -131,9 +130,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         }
 
         int active = status.Displays.Count(x => x.ActiveNow);
-        int enabled = status.Displays.Count(x => x.Enabled);
+        int capable = status.Displays.Count(x => x.Capable);
         int total = status.Displays.Count;
-        sb.Append($"\n{total} display(s), {enabled} enabled, {active} active");
+        sb.Append($"\n{total} display(s), {capable} G-Sync-capable, {active} active");
         return sb.ToString();
     }
 
@@ -172,9 +171,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         MessageBox.Show(
             "G-Sync Taskbar Indicator\n\n" +
             "Shows whether NVIDIA G-Sync / adaptive sync is currently driving your display.\n\n" +
-            "Green = active (variable refresh in use right now)\n" +
-            "Amber = enabled but idle (no app is using it)\n" +
-            "Gray = off or unavailable\n\n" +
+            "Green = active (variable refresh engaged right now)\n" +
+            "Amber = G-Sync-capable, ready but idle (no app is using it)\n" +
+            "Gray = no G-Sync display / unavailable\n\n" +
             "Detection uses NVAPI's adaptive-sync flip data.",
             "About G-Sync Indicator",
             MessageBoxButtons.OK,

@@ -3,13 +3,11 @@ namespace GSyncIndicator;
 /// <summary>Overall G-Sync state, most-specific first.</summary>
 public enum GSyncState
 {
-    /// <summary>No NVIDIA GPU / driver, or no displays could be queried.</summary>
+    /// <summary>No NVIDIA GPU/driver, or no display reports adaptive-sync (G-Sync) support.</summary>
     Unavailable,
-    /// <summary>G-Sync-capable display(s) found, but adaptive sync is turned off for all of them.</summary>
-    Off,
-    /// <summary>G-Sync is enabled and ready, but nothing is currently driving variable refresh.</summary>
+    /// <summary>A G-Sync-capable display is present but variable refresh is not engaged right now.</summary>
     Ready,
-    /// <summary>G-Sync is actively driving the refresh rate right now (a game/app is presenting).</summary>
+    /// <summary>G-Sync is engaged and driving the refresh rate right now.</summary>
     Active
 }
 
@@ -17,8 +15,8 @@ public enum GSyncState
 public readonly record struct DisplayStatus(
     uint DisplayId,
     bool IsPrimary,
-    bool Supported,
-    bool Enabled,
+    bool Capable,
+    bool Engaged,
     bool ActiveNow);
 
 /// <summary>Aggregate result of a single poll.</summary>
@@ -30,20 +28,21 @@ public sealed class GSyncStatus
 
     public string ShortLabel => State switch
     {
-        GSyncState.Active      => "G-Sync: ACTIVE",
-        GSyncState.Ready       => "G-Sync: on (idle)",
-        GSyncState.Off         => "G-Sync: off",
-        _                      => "G-Sync: unavailable"
+        GSyncState.Active => "G-Sync: ACTIVE",
+        GSyncState.Ready  => "G-Sync: on (idle)",
+        _                 => "G-Sync: unavailable"
     };
 }
 
 /// <summary>
 /// Polls NVAPI and turns the raw adaptive-sync data into a single <see cref="GSyncStatus"/>.
 ///
-/// "Active" is inferred from the adaptive-sync flip timestamp advancing between polls:
-/// when variable refresh is actually driving a display, its last-flip timestamp keeps
-/// moving; on a static desktop it does not. This mirrors what NVIDIA's own on-screen
-/// G-Sync indicator reflects.
+/// NVAPI's <c>bDisableAdaptiveSync</c> flag reflects whether variable refresh is *engaged
+/// right now*, not whether G-Sync is enabled in the driver: on a static desktop it reads
+/// "disabled" even for a G-Sync monitor with G-Sync turned on. So a display is treated as:
+///   * Active  — adaptive sync is engaged (flag clear), and flips are advancing
+///   * Ready   — the display is G-Sync-capable (the query succeeds) but not engaged/presenting
+///   * (absent)— the query fails, i.e. the display has no adaptive-sync support
 /// </summary>
 public sealed class GSyncMonitor
 {
@@ -82,7 +81,7 @@ public sealed class GSyncMonitor
         }
 
         var displays = new List<DisplayStatus>(ids.Count);
-        bool anyActive = false, anyEnabled = false, anySupported = false;
+        bool anyActive = false, anyCapable = false;
 
         foreach (uint id in ids)
         {
@@ -91,18 +90,19 @@ public sealed class GSyncMonitor
 
             if (!info.Supported)
             {
+                // Query failed -> this display has no adaptive-sync support.
                 _lastFlipTimestamps.Remove(id);
-                displays.Add(new DisplayStatus(id, isPrimary, Supported: false, Enabled: false, ActiveNow: false));
+                displays.Add(new DisplayStatus(id, isPrimary, Capable: false, Engaged: false, ActiveNow: false));
                 continue;
             }
 
-            anySupported = true;
-            bool enabled = !info.Disabled;
+            anyCapable = true;
+            bool engaged = !info.Disabled;   // flag clear == adaptive sync engaged right now
             bool activeNow = false;
 
-            if (enabled)
+            if (engaged)
             {
-                anyEnabled = true;
+                // Confirm frames are actually being presented (timestamp advancing).
                 if (_lastFlipTimestamps.TryGetValue(id, out ulong prev))
                     activeNow = info.LastFlipTimeStamp > prev;
                 _lastFlipTimestamps[id] = info.LastFlipTimeStamp;
@@ -113,17 +113,15 @@ public sealed class GSyncMonitor
                 _lastFlipTimestamps.Remove(id);
             }
 
-            displays.Add(new DisplayStatus(id, isPrimary, Supported: true, Enabled: enabled, ActiveNow: activeNow));
+            displays.Add(new DisplayStatus(id, isPrimary, Capable: true, Engaged: engaged, ActiveNow: activeNow));
         }
 
-        // Drop timestamps for displays that disappeared (e.g. unplugged).
         PruneMissing(ids);
 
         GSyncState state =
-            anyActive    ? GSyncState.Active :
-            anyEnabled   ? GSyncState.Ready  :
-            anySupported ? GSyncState.Off    :
-                           GSyncState.Unavailable;
+            anyActive  ? GSyncState.Active :
+            anyCapable ? GSyncState.Ready  :
+                         GSyncState.Unavailable;
 
         string? note = state == GSyncState.Unavailable
             ? "Displays were found, but none report G-Sync / adaptive-sync support."

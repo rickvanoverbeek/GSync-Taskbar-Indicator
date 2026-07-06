@@ -24,11 +24,10 @@ internal sealed class IconFactory : IDisposable
         {
             GSyncState.Active => (Color.FromArgb(46, 204, 64),   true),   // green
             GSyncState.Ready  => (Color.FromArgb(255, 176, 0),   false),  // amber
-            GSyncState.Off    => (Color.FromArgb(128, 128, 128), false),  // gray
-            _                 => (Color.FromArgb(90, 90, 90),    false),  // dim gray
+            _                 => (Color.FromArgb(110, 110, 110), false),  // gray
         };
 
-        var (icon, handle) = Build(fill, ring, muted: state is GSyncState.Off or GSyncState.Unavailable);
+        var (icon, handle) = Build(fill, ring, muted: state is GSyncState.Unavailable);
         _cache[state] = (icon, handle);
         return icon;
     }
