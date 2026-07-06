@@ -39,26 +39,52 @@ No configuration files, no admin rights, and no third-party services.
   **NVIDIA Control Panel → Display → Set up G-SYNC**
 - To build from source: the free [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 
-## Build & run
+## Install
 
-From a terminal in the repository root on your Windows machine:
+There are three ways to get it running, easiest first.
+
+### 1. Installer (recommended)
+
+Download `GSyncIndicator-Setup-<version>.exe` from the
+[Releases](https://github.com/rickvanoverbeek/gsync-taskbar-indicator/releases) page and run
+it. It installs per-user (no administrator prompt), adds a Start-menu shortcut, and offers
+to start the app automatically when you sign in. Uninstall from **Settings → Apps** like any
+other program.
+
+> No release yet? See **Build the installer yourself** below — it's one command.
+
+### 2. Portable exe
+
+Download `GSyncIndicator.exe` from Releases and double-click it — no installation, no .NET
+required. Use the tray menu's **Start with Windows** to have it launch on sign-in.
+
+### 3. Run from source
 
 ```powershell
-# Run directly
 dotnet run --project GSyncIndicator -c Release
-
-# …or produce a standalone .exe that does NOT need .NET installed
-dotnet publish GSyncIndicator -c Release -r win-x64 --self-contained `
-    -p:PublishSingleFile=true
 ```
 
-The published single file lands in:
+Requires the free [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
+
+## Build the installer yourself
+
+From the repository root on Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1
+```
+
+This publishes a self-contained single-file exe and, if
+[Inno Setup 6](https://jrsoftware.org/isdl.php) is installed
+(`winget install JRSoftware.InnoSetup`), compiles the installer. Outputs land in `dist\`:
 
 ```
-GSyncIndicator\bin\Release\net8.0-windows\win-x64\publish\GSyncIndicator.exe
+dist\GSyncIndicator.exe                    # portable, self-contained
+dist\GSyncIndicator-Setup-1.0.0.exe        # installer
 ```
 
-Double-click that `.exe` (or the `dotnet run` above) and the icon appears in the tray.
+Pass `-SkipInstaller` to build only the portable exe. Pushing a `v*` tag builds both on CI
+and attaches them to a GitHub Release (see `.github/workflows/release.yml`).
 
 > Building on Linux/macOS (for CI or a compile check only — it cannot run there) requires
 > the extra flag `-p:EnableWindowsTargeting=true`.
@@ -90,11 +116,16 @@ under `HKCU\…\CurrentVersion\Run` (no admin rights needed); untick to remove i
 ## Project layout
 
 ```
-GSyncIndicator/
-├─ Program.cs                  # entry point + single-instance guard
-├─ TrayApplicationContext.cs   # tray icon, poll timer, context menu
-├─ GSyncMonitor.cs             # turns raw NVAPI data into a single status
-├─ NvApi.cs                    # P/Invoke layer over nvapi64.dll
-├─ IconFactory.cs              # draws the colored tray icons at runtime
-└─ AutoStart.cs               # "start with Windows" registry toggle
+├─ GSyncIndicator/
+│  ├─ Program.cs                  # entry point + single-instance guard
+│  ├─ TrayApplicationContext.cs   # tray icon, poll timer, context menu
+│  ├─ GSyncMonitor.cs             # turns raw NVAPI data into a single status
+│  ├─ NvApi.cs                    # P/Invoke layer over nvapi64.dll
+│  ├─ IconFactory.cs              # draws the colored tray icons at runtime
+│  ├─ AutoStart.cs                # "start with Windows" registry toggle
+│  └─ appicon.ico                 # application/shortcut icon
+├─ installer/GSyncIndicator.iss   # Inno Setup installer script
+├─ tools/make_icon.py             # regenerates appicon.ico
+├─ build.ps1                      # publish exe + compile installer
+└─ .github/workflows/release.yml  # CI: build installer, publish release
 ```
