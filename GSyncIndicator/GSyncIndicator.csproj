@@ -11,7 +11,7 @@
     <RootNamespace>GSyncIndicator</RootNamespace>
     <ApplicationIcon>appicon.ico</ApplicationIcon>
     <Product>G-Sync Taskbar Indicator</Product>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Company>GSync-Taskbar-Indicator</Company>
 
     <!-- nvapi64.dll is 64-bit only, so the process must run as x64. -->

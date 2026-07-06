@@ -5,9 +5,9 @@ public enum GSyncState
 {
     /// <summary>No NVIDIA GPU/driver, or no display reports adaptive-sync (G-Sync) support.</summary>
     Unavailable,
-    /// <summary>A G-Sync-capable display is present but variable refresh is not engaged right now.</summary>
+    /// <summary>A G-Sync-capable display is present but variable refresh is not driving it right now.</summary>
     Ready,
-    /// <summary>G-Sync is engaged and driving the refresh rate right now.</summary>
+    /// <summary>G-Sync is actively driving the refresh rate right now (a game/app is presenting with VRR).</summary>
     Active
 }
 
@@ -16,7 +16,6 @@ public readonly record struct DisplayStatus(
     uint DisplayId,
     bool IsPrimary,
     bool Capable,
-    bool Engaged,
     bool ActiveNow);
 
 /// <summary>Aggregate result of a single poll.</summary>
@@ -29,7 +28,7 @@ public sealed class GSyncStatus
     public string ShortLabel => State switch
     {
         GSyncState.Active => "G-Sync: ACTIVE",
-        GSyncState.Ready  => "G-Sync: on (idle)",
+        GSyncState.Ready  => "G-Sync: ready (idle)",
         _                 => "G-Sync: unavailable"
     };
 }
@@ -37,16 +36,28 @@ public sealed class GSyncStatus
 /// <summary>
 /// Polls NVAPI and turns the raw adaptive-sync data into a single <see cref="GSyncStatus"/>.
 ///
-/// NVAPI's <c>bDisableAdaptiveSync</c> flag reflects whether variable refresh is *engaged
-/// right now*, not whether G-Sync is enabled in the driver: on a static desktop it reads
-/// "disabled" even for a G-Sync monitor with G-Sync turned on. So a display is treated as:
-///   * Active  — adaptive sync is engaged (flag clear), and flips are advancing
-///   * Ready   — the display is G-Sync-capable (the query succeeds) but not engaged/presenting
-///   * (absent)— the query fails, i.e. the display has no adaptive-sync support
+/// Detection is based purely on the adaptive-sync flip counter advancing: it only moves when
+/// variable refresh is actually driving a display (it stays frozen on a static desktop and
+/// during fixed-refresh output). NVAPI's <c>bDisableAdaptiveSync</c> flag is deliberately
+/// ignored — on real hardware it reads the same whether G-Sync is on or off, so it can't be
+/// trusted.
+///
+///   * Active — the flip counter is advancing (VRR is driving the screen now)
+///   * Ready  — the display is G-Sync-capable (the query succeeds) but not being driven
+///   * (none) — the query fails, i.e. the display has no adaptive-sync support
+///
+/// Note: because the driver reports identical data whether G-Sync is merely *enabled* or fully
+/// *disabled* while idle, "idle-but-enabled" and "disabled" both surface as Ready.
 /// </summary>
 public sealed class GSyncMonitor
 {
-    private readonly Dictionary<uint, ulong> _lastFlipTimestamps = new();
+    // A real game advances the flip counter by roughly its frame rate each second; stray
+    // desktop repaints (if any) produce only a flip or two. Require a clear rate, or two
+    // consecutive advancing polls, before calling it "active".
+    private const uint ActiveFlipDelta = 5;
+    private const int  ActiveStreak = 2;
+
+    private readonly Dictionary<uint, (uint count, int streak)> _flips = new();
     private bool _initTried;
 
     public GSyncStatus Poll()
@@ -59,7 +70,7 @@ public sealed class GSyncMonitor
 
         if (!NvApi.Available)
         {
-            _lastFlipTimestamps.Clear();
+            _flips.Clear();
             return new GSyncStatus
             {
                 State = GSyncState.Unavailable,
@@ -72,7 +83,7 @@ public sealed class GSyncMonitor
 
         if (ids.Count == 0)
         {
-            _lastFlipTimestamps.Clear();
+            _flips.Clear();
             return new GSyncStatus
             {
                 State = GSyncState.Unavailable,
@@ -90,30 +101,16 @@ public sealed class GSyncMonitor
 
             if (!info.Supported)
             {
-                // Query failed -> this display has no adaptive-sync support.
-                _lastFlipTimestamps.Remove(id);
-                displays.Add(new DisplayStatus(id, isPrimary, Capable: false, Engaged: false, ActiveNow: false));
+                _flips.Remove(id);
+                displays.Add(new DisplayStatus(id, isPrimary, Capable: false, ActiveNow: false));
                 continue;
             }
 
             anyCapable = true;
-            bool engaged = !info.Disabled;   // flag clear == adaptive sync engaged right now
-            bool activeNow = false;
+            bool activeNow = UpdateActivity(id, info.LastFlipRefreshCount);
+            if (activeNow) anyActive = true;
 
-            if (engaged)
-            {
-                // Confirm frames are actually being presented (timestamp advancing).
-                if (_lastFlipTimestamps.TryGetValue(id, out ulong prev))
-                    activeNow = info.LastFlipTimeStamp > prev;
-                _lastFlipTimestamps[id] = info.LastFlipTimeStamp;
-                if (activeNow) anyActive = true;
-            }
-            else
-            {
-                _lastFlipTimestamps.Remove(id);
-            }
-
-            displays.Add(new DisplayStatus(id, isPrimary, Capable: true, Engaged: engaged, ActiveNow: activeNow));
+            displays.Add(new DisplayStatus(id, isPrimary, Capable: true, ActiveNow: activeNow));
         }
 
         PruneMissing(ids);
@@ -130,10 +127,31 @@ public sealed class GSyncMonitor
         return new GSyncStatus { State = state, Displays = displays, Note = note };
     }
 
+    /// <summary>Updates the per-display flip history and returns whether VRR is driving it now.</summary>
+    private bool UpdateActivity(uint id, uint count)
+    {
+        int streak = 0;
+        bool active = false;
+
+        if (_flips.TryGetValue(id, out var prev))
+        {
+            // The counter is unsigned and could wrap; treat only forward movement as a flip.
+            uint delta = count >= prev.count ? count - prev.count : 0;
+            if (delta > 0)
+            {
+                streak = prev.streak + 1;
+                active = delta >= ActiveFlipDelta || streak >= ActiveStreak;
+            }
+        }
+
+        _flips[id] = (count, streak);
+        return active;
+    }
+
     private void PruneMissing(IReadOnlyList<uint> present)
     {
-        if (_lastFlipTimestamps.Count == 0) return;
-        var stale = _lastFlipTimestamps.Keys.Where(k => !present.Contains(k)).ToList();
-        foreach (var k in stale) _lastFlipTimestamps.Remove(k);
+        if (_flips.Count == 0) return;
+        var stale = _flips.Keys.Where(k => !present.Contains(k)).ToList();
+        foreach (var k in stale) _flips.Remove(k);
     }
 }
