@@ -38,9 +38,15 @@ dotnet publish $project -c $Configuration -r win-x64 --self-contained true `
     -p:DebugType=none
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)." }
 
+# Read the version from the project so the portable exe is named like the installer.
+$version = ([xml](Get-Content $project)).Project.PropertyGroup.Version |
+           Where-Object { $_ } | Select-Object -First 1
+if (-not $version) { $version = '1.0.0' }
+
 New-Item -ItemType Directory -Force -Path $dist | Out-Null
-Copy-Item (Join-Path $publishDir 'GSyncIndicator.exe') (Join-Path $dist 'GSyncIndicator.exe') -Force
-Write-Host "    Portable exe -> $(Join-Path $dist 'GSyncIndicator.exe')" -ForegroundColor Green
+$portable = Join-Path $dist "GSyncIndicator-Portable-$version.exe"
+Copy-Item (Join-Path $publishDir 'GSyncIndicator.exe') $portable -Force
+Write-Host "    Portable exe -> $portable" -ForegroundColor Green
 
 if ($SkipInstaller) { Write-Host '==> Skipping installer (per -SkipInstaller).'; return }
 

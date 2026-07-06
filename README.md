@@ -55,8 +55,9 @@ other program.
 
 ### 2. Portable exe
 
-Download `GSyncIndicator.exe` from Releases and double-click it — no installation, no .NET
-required. Use the tray menu's **Start with Windows** to have it launch on sign-in.
+Download `GSyncIndicator-Portable-<version>.exe` from Releases and double-click it — no
+installation, no .NET required. Use the tray menu's **Start with Windows** to have it launch
+on sign-in.
 
 ### 3. Run from source
 
@@ -79,7 +80,7 @@ This publishes a self-contained single-file exe and, if
 (`winget install JRSoftware.InnoSetup`), compiles the installer. Outputs land in `dist\`:
 
 ```
-dist\GSyncIndicator.exe                    # portable, self-contained
+dist\GSyncIndicator-Portable-1.0.0.exe     # portable, self-contained
 dist\GSyncIndicator-Setup-1.0.0.exe        # installer
 ```
 

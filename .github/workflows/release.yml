@@ -41,4 +41,4 @@ jobs:
         with:
           files: |
             dist/GSyncIndicator-Setup-*.exe
-            dist/GSyncIndicator.exe
+            dist/GSyncIndicator-Portable-*.exe
