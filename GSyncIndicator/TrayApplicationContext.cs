@@ -48,6 +48,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(_autoStartItem);
         menu.Items.Add(new ToolStripMenuItem("Refresh now", null, (_, _) => Tick()));
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Diagnostics…", null, ShowDiagnostics));
         menu.Items.Add(new ToolStripMenuItem("About", null, ShowAbout));
         menu.Items.Add(new ToolStripMenuItem("Exit", null, (_, _) => ExitThread()));
         menu.Opening += (_, _) => Tick();   // freshest data when the user opens the menu
@@ -153,6 +154,18 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     private void ToggleAutoStart(object? sender, EventArgs e)
         => AutoStart.SetEnabled(_autoStartItem.Checked);
+
+    private DiagnosticsForm? _diagnostics;
+
+    private void ShowDiagnostics(object? sender, EventArgs e)
+    {
+        if (_diagnostics is null || _diagnostics.IsDisposed)
+            _diagnostics = new DiagnosticsForm();
+        _diagnostics.Show();
+        _diagnostics.WindowState = FormWindowState.Normal;
+        _diagnostics.BringToFront();
+        _diagnostics.Activate();
+    }
 
     private void ShowAbout(object? sender, EventArgs e)
     {

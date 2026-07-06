@@ -22,6 +22,8 @@ internal static class NvApi
     private const uint ID_GPU_GetConnectedDisplayIds = 0x0078DBA2;
     private const uint ID_DISP_GetGDIPrimaryDisplayId = 0x1E9D8A31;
     private const uint ID_DISP_GetAdaptiveSyncData   = 0xB73D1EE9;
+    private const uint ID_SYS_GetDriverAndBranchVersion = 0x2926AAAD;
+    private const uint ID_GetInterfaceVersionString  = 0x01053FA5;
 
     private const int NVAPI_OK = 0;
     private const int NVAPI_MAX_PHYSICAL_GPUS = 64;
@@ -46,6 +48,10 @@ internal static class NvApi
     private delegate int GetGDIPrimaryDisplayId_t(out uint displayId);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int GetAdaptiveSyncData_t(uint displayId, ref NV_GET_ADAPTIVE_SYNC_DATA_V1 data);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int GetDriverAndBranchVersion_t(out uint version, [Out] byte[] branch);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int GetInterfaceVersionString_t([Out] byte[] desc);
 
     private static Initialize_t?             _initialize;
     private static Unload_t?                 _unload;
@@ -54,6 +60,8 @@ internal static class NvApi
     private static GetConnectedDisplayIds_t? _getConnectedDisplayIds;
     private static GetGDIPrimaryDisplayId_t? _getGdiPrimary;
     private static GetAdaptiveSyncData_t?    _getAdaptiveSync;
+    private static GetDriverAndBranchVersion_t? _getDriverVersion;
+    private static GetInterfaceVersionString_t? _getInterfaceVersion;
 
     /// <summary>True once <see cref="Initialize"/> has succeeded.</summary>
     public static bool Available { get; private set; }
@@ -124,6 +132,8 @@ internal static class NvApi
             _getConnectedDisplayIds = Resolve<GetConnectedDisplayIds_t>(ID_GPU_GetConnectedDisplayIds);
             _getGdiPrimary          = Resolve<GetGDIPrimaryDisplayId_t>(ID_DISP_GetGDIPrimaryDisplayId);
             _getAdaptiveSync        = Resolve<GetAdaptiveSyncData_t>(ID_DISP_GetAdaptiveSyncData);
+            _getDriverVersion       = Resolve<GetDriverAndBranchVersion_t>(ID_SYS_GetDriverAndBranchVersion);
+            _getInterfaceVersion    = Resolve<GetInterfaceVersionString_t>(ID_GetInterfaceVersionString);
 
             if (_initialize is null)
             {
@@ -277,8 +287,130 @@ internal static class NvApi
         }
     }
 
+    /// <summary>Raw adaptive-sync read that also surfaces the NVAPI status code (for diagnostics).</summary>
+    public readonly record struct AdaptiveSyncRaw(
+        int Status, bool Disabled, bool FrameSplittingDisabled,
+        uint MaxFrameIntervalMicros, uint LastFlipRefreshCount, ulong LastFlipTimeStamp);
+
+    public static AdaptiveSyncRaw GetAdaptiveSyncRaw(uint displayId)
+    {
+        if (!Available || _getAdaptiveSync is null)
+            return new AdaptiveSyncRaw(int.MinValue, false, false, 0, 0, 0);
+
+        var data = new NV_GET_ADAPTIVE_SYNC_DATA_V1
+        {
+            version = MakeVersion<NV_GET_ADAPTIVE_SYNC_DATA_V1>(1)
+        };
+        try
+        {
+            int status = _getAdaptiveSync(displayId, ref data);
+            return new AdaptiveSyncRaw(
+                status,
+                (data.flags & 0x1) != 0,
+                (data.flags & 0x2) != 0,
+                data.maxFrameInterval,
+                data.lastFlipRefreshCount,
+                data.lastFlipTimeStamp);
+        }
+        catch (Exception ex)
+        {
+            return new AdaptiveSyncRaw(int.MinValue, false, false, 0, 0, (ulong)ex.HResult);
+        }
+    }
+
+    /// <summary>Human-readable NVAPI status text (via NvAPI_GetErrorMessage when available).</summary>
+    public static string DescribeStatusText(int status) => DescribeStatus(status);
+
+    /// <summary>Driver version string like "551.86 (branch r550_00)", or null if unavailable.</summary>
+    public static string? GetDriverVersion()
+    {
+        try
+        {
+            if (Available && _getDriverVersion is not null)
+            {
+                var branch = new byte[NVAPI_SHORT_STRING_MAX];
+                if (_getDriverVersion(out uint ver, branch) == NVAPI_OK)
+                {
+                    string b = System.Text.Encoding.ASCII.GetString(branch).TrimEnd('\0', ' ');
+                    return $"{ver / 100}.{ver % 100:D2} (branch {b})";
+                }
+            }
+        }
+        catch { /* ignore */ }
+        return null;
+    }
+
+    private static string? GetInterfaceVersion()
+    {
+        try
+        {
+            if (_getInterfaceVersion is not null)
+            {
+                var buf = new byte[NVAPI_SHORT_STRING_MAX];
+                if (_getInterfaceVersion(buf) == NVAPI_OK)
+                    return System.Text.Encoding.ASCII.GetString(buf).TrimEnd('\0', ' ');
+            }
+        }
+        catch { /* ignore */ }
+        return null;
+    }
+
+    /// <summary>
+    /// Builds a full diagnostic report of what NVAPI reports for every display, including
+    /// raw status codes and flags. Meant to be copied and shared for troubleshooting.
+    /// </summary>
+    public static string BuildReport()
+    {
+        var sb = new System.Text.StringBuilder();
+        Initialize();
+
+        sb.AppendLine($"NVAPI available : {Available}");
+        if (!Available)
+        {
+            sb.AppendLine($"Reason          : {UnavailableReason}");
+            return sb.ToString();
+        }
+
+        sb.AppendLine($"Driver version  : {GetDriverVersion() ?? "(unknown)"}");
+        sb.AppendLine($"NVAPI interface : {GetInterfaceVersion() ?? "(unknown)"}");
+        sb.AppendLine($"AdaptiveSync ver: 0x{MakeVersion<NV_GET_ADAPTIVE_SYNC_DATA_V1>(1):X} " +
+                      $"(size {Marshal.SizeOf<NV_GET_ADAPTIVE_SYNC_DATA_V1>()})");
+
+        uint primary = GetPrimaryDisplayId();
+        var ids = GetDisplayIds();
+        sb.AppendLine($"Primary display : 0x{primary:X8}");
+        sb.AppendLine($"Displays found  : {ids.Count}");
+        sb.AppendLine();
+
+        if (ids.Count == 0)
+        {
+            sb.AppendLine("No display ids were returned by NVAPI.");
+            return sb.ToString();
+        }
+
+        foreach (uint id in ids)
+        {
+            string tag = id == primary && primary != 0 ? " (primary)" : "";
+            var r = GetAdaptiveSyncRaw(id);
+            sb.AppendLine($"Display 0x{id:X8}{tag}");
+            sb.AppendLine($"  GetAdaptiveSyncData: status {r.Status} = {DescribeStatus(r.Status)}");
+            if (r.Status == NVAPI_OK)
+            {
+                sb.AppendLine($"  bDisableAdaptiveSync   : {(r.Disabled ? 1 : 0)}");
+                sb.AppendLine($"  bDisableFrameSplitting : {(r.FrameSplittingDisabled ? 1 : 0)}");
+                sb.AppendLine($"  maxFrameInterval       : {r.MaxFrameIntervalMicros} us");
+                sb.AppendLine($"  lastFlipRefreshCount   : {r.LastFlipRefreshCount}");
+                sb.AppendLine($"  lastFlipTimeStamp      : {r.LastFlipTimeStamp}");
+            }
+            sb.AppendLine();
+        }
+
+        return sb.ToString();
+    }
+
     private static string DescribeStatus(int status)
     {
+        if (status == int.MinValue) return "call threw / unavailable";
         try
         {
             if (_getErrorMessage is not null)

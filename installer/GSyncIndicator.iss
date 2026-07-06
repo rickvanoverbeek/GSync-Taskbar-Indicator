@@ -6,7 +6,7 @@
 
 #define AppName "G-Sync Taskbar Indicator"
 #define AppExeName "GSyncIndicator.exe"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "GSync-Taskbar-Indicator"
 #define AppUrl "https://github.com/rickvanoverbeek/gsync-taskbar-indicator"
 
