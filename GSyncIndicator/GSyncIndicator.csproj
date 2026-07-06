@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <AssemblyName>GSyncIndicator</AssemblyName>
+    <RootNamespace>GSyncIndicator</RootNamespace>
+    <Product>G-Sync Taskbar Indicator</Product>
+    <Version>1.0.0</Version>
+    <Company>GSync-Taskbar-Indicator</Company>
+
+    <!-- nvapi64.dll is 64-bit only, so the process must run as x64. -->
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+
+    <!-- Crisp tray icon on high-DPI displays. -->
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+
+    <!-- Nice-to-have: no console window flashes; single self-contained exe when published. -->
+    <SelfContained>false</SelfContained>
+  </PropertyGroup>
+
+</Project>
