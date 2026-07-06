@@ -5,7 +5,9 @@ public enum GSyncState
 {
     /// <summary>No NVIDIA GPU/driver, or no display reports adaptive-sync (G-Sync) support.</summary>
     Unavailable,
-    /// <summary>A G-Sync-capable display is present but variable refresh is not driving it right now.</summary>
+    /// <summary>A G-Sync-capable display is present, but G-Sync is turned off in the driver.</summary>
+    Disabled,
+    /// <summary>G-Sync is enabled and a capable display is present, but VRR is not driving it right now.</summary>
     Ready,
     /// <summary>G-Sync is actively driving the refresh rate right now (a game/app is presenting with VRR).</summary>
     Active
@@ -27,9 +29,10 @@ public sealed class GSyncStatus
 
     public string ShortLabel => State switch
     {
-        GSyncState.Active => "G-Sync: ACTIVE",
-        GSyncState.Ready  => "G-Sync: ready (idle)",
-        _                 => "G-Sync: unavailable"
+        GSyncState.Active   => "G-Sync: ACTIVE",
+        GSyncState.Ready    => "G-Sync: on (idle)",
+        GSyncState.Disabled => "G-Sync: off",
+        _                   => "G-Sync: unavailable"
     };
 }
 
@@ -57,8 +60,14 @@ public sealed class GSyncMonitor
     private const uint ActiveFlipDelta = 5;
     private const int  ActiveStreak = 2;
 
+    // The global G-Sync switch (VRR_MODE) rarely changes, and reading it spins up a DRS
+    // session, so refresh it only every few polls rather than every second.
+    private const int VrrRefreshEveryPolls = 5;
+
     private readonly Dictionary<uint, (uint count, int streak)> _flips = new();
     private bool _initTried;
+    private int _pollCount;
+    private int _vrrMode = -1;   // -1 unknown, 0 disabled, 1/2 enabled
 
     public GSyncStatus Poll()
     {
@@ -91,6 +100,10 @@ public sealed class GSyncMonitor
             };
         }
 
+        if (_pollCount % VrrRefreshEveryPolls == 0)
+            _vrrMode = NvApi.GetVrrMode();
+        _pollCount++;
+
         var displays = new List<DisplayStatus>(ids.Count);
         bool anyActive = false, anyCapable = false;
 
@@ -115,14 +128,20 @@ public sealed class GSyncMonitor
 
         PruneMissing(ids);
 
+        // _vrrMode == 0 means G-Sync is switched off in the driver; treat that as Disabled
+        // even though a capable display is present. Unknown (-1) falls back to Ready.
         GSyncState state =
-            anyActive  ? GSyncState.Active :
-            anyCapable ? GSyncState.Ready  :
-                         GSyncState.Unavailable;
+            anyActive              ? GSyncState.Active :
+            !anyCapable            ? GSyncState.Unavailable :
+            _vrrMode == 0          ? GSyncState.Disabled :
+                                     GSyncState.Ready;
 
-        string? note = state == GSyncState.Unavailable
-            ? "Displays were found, but none report G-Sync / adaptive-sync support."
-            : null;
+        string? note = state switch
+        {
+            GSyncState.Unavailable => "Displays were found, but none report G-Sync / adaptive-sync support.",
+            GSyncState.Disabled    => "G-Sync is turned off in the NVIDIA Control Panel / NVIDIA App.",
+            _                      => null
+        };
 
         return new GSyncStatus { State = state, Displays = displays, Note = note };
     }

@@ -172,8 +172,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
             "G-Sync Taskbar Indicator\n\n" +
             "Shows whether NVIDIA G-Sync / adaptive sync is currently driving your display.\n\n" +
             "Green = active (variable refresh engaged right now)\n" +
-            "Amber = G-Sync-capable, ready but idle (no app is using it)\n" +
-            "Gray = no G-Sync display / unavailable\n\n" +
+            "Amber = G-Sync enabled, ready but idle (no app is using it)\n" +
+            "Gray = G-Sync turned off, or no G-Sync display\n\n" +
             "Detection uses NVAPI's adaptive-sync flip data.",
             "About G-Sync Indicator",
             MessageBoxButtons.OK,

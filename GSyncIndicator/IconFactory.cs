@@ -22,12 +22,13 @@ internal sealed class IconFactory : IDisposable
 
         (Color fill, bool ring) = state switch
         {
-            GSyncState.Active => (Color.FromArgb(46, 204, 64),   true),   // green
-            GSyncState.Ready  => (Color.FromArgb(255, 176, 0),   false),  // amber
-            _                 => (Color.FromArgb(110, 110, 110), false),  // gray
+            GSyncState.Active   => (Color.FromArgb(46, 204, 64),   true),   // green
+            GSyncState.Ready    => (Color.FromArgb(255, 176, 0),   false),  // amber
+            GSyncState.Disabled => (Color.FromArgb(128, 128, 128), false),  // gray
+            _                   => (Color.FromArgb(90, 90, 90),    false),  // dim gray
         };
 
-        var (icon, handle) = Build(fill, ring, muted: state is GSyncState.Unavailable);
+        var (icon, handle) = Build(fill, ring, muted: state is GSyncState.Disabled or GSyncState.Unavailable);
         _cache[state] = (icon, handle);
         return icon;
     }

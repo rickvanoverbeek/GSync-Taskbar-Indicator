@@ -25,6 +25,22 @@ internal static class NvApi
     private const uint ID_SYS_GetDriverAndBranchVersion = 0x2926AAAD;
     private const uint ID_GetInterfaceVersionString  = 0x01053FA5;
 
+    // Driver-settings (DRS) API — used to read the global "Enable G-SYNC" switch.
+    private const uint ID_DRS_CreateSession          = 0x0694D52E;
+    private const uint ID_DRS_DestroySession         = 0xDAD9CFF8;
+    private const uint ID_DRS_LoadSettings           = 0x375DBD6B;
+    private const uint ID_DRS_GetBaseProfile         = 0xDA8466A0;
+    private const uint ID_DRS_GetCurrentGlobalProfile = 0x617BFF9F;
+    private const uint ID_DRS_GetSetting             = 0x73BF8338;
+
+    // VRR_MODE setting (from NvApiDriverSettings.h): 0 = disabled, 1 = fullscreen, 2 = fullscreen+windowed.
+    private const uint VRR_MODE_ID = 0x1194F158;
+
+    // NVDRS_SETTING_V1 is a large fixed struct; we read it as a raw buffer.
+    private const int NVDRS_SETTING_SIZE = 12320;
+    private const int NVDRS_SETTING_CURRENTVALUE_OFFSET = 8220;
+    private const uint NVDRS_SETTING_VER = (uint)NVDRS_SETTING_SIZE | (1u << 16);
+
     private const int NVAPI_OK = 0;
     private const int NVAPI_MAX_PHYSICAL_GPUS = 64;
     private const int NVAPI_SHORT_STRING_MAX = 64;
@@ -52,6 +68,16 @@ internal static class NvApi
     private delegate int GetDriverAndBranchVersion_t(out uint version, [Out] byte[] branch);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int GetInterfaceVersionString_t([Out] byte[] desc);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int DRS_CreateSession_t(out IntPtr session);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int DRS_DestroySession_t(IntPtr session);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int DRS_LoadSettings_t(IntPtr session);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int DRS_GetProfile_t(IntPtr session, out IntPtr profile);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate int DRS_GetSetting_t(IntPtr session, IntPtr profile, uint settingId, IntPtr setting);
 
     private static Initialize_t?             _initialize;
     private static Unload_t?                 _unload;
@@ -62,6 +88,12 @@ internal static class NvApi
     private static GetAdaptiveSyncData_t?    _getAdaptiveSync;
     private static GetDriverAndBranchVersion_t? _getDriverVersion;
     private static GetInterfaceVersionString_t? _getInterfaceVersion;
+    private static DRS_CreateSession_t?  _drsCreateSession;
+    private static DRS_DestroySession_t? _drsDestroySession;
+    private static DRS_LoadSettings_t?   _drsLoadSettings;
+    private static DRS_GetProfile_t?     _drsGetBaseProfile;
+    private static DRS_GetProfile_t?     _drsGetCurrentGlobalProfile;
+    private static DRS_GetSetting_t?     _drsGetSetting;
 
     /// <summary>True once <see cref="Initialize"/> has succeeded.</summary>
     public static bool Available { get; private set; }
@@ -134,6 +166,12 @@ internal static class NvApi
             _getAdaptiveSync        = Resolve<GetAdaptiveSyncData_t>(ID_DISP_GetAdaptiveSyncData);
             _getDriverVersion       = Resolve<GetDriverAndBranchVersion_t>(ID_SYS_GetDriverAndBranchVersion);
             _getInterfaceVersion    = Resolve<GetInterfaceVersionString_t>(ID_GetInterfaceVersionString);
+            _drsCreateSession       = Resolve<DRS_CreateSession_t>(ID_DRS_CreateSession);
+            _drsDestroySession      = Resolve<DRS_DestroySession_t>(ID_DRS_DestroySession);
+            _drsLoadSettings        = Resolve<DRS_LoadSettings_t>(ID_DRS_LoadSettings);
+            _drsGetBaseProfile      = Resolve<DRS_GetProfile_t>(ID_DRS_GetBaseProfile);
+            _drsGetCurrentGlobalProfile = Resolve<DRS_GetProfile_t>(ID_DRS_GetCurrentGlobalProfile);
+            _drsGetSetting          = Resolve<DRS_GetSetting_t>(ID_DRS_GetSetting);
 
             if (_initialize is null)
             {
@@ -340,6 +378,61 @@ internal static class NvApi
         return null;
     }
 
+    /// <summary>
+    /// Reads the global "Enable G-SYNC" driver setting (VRR_MODE):
+    /// 0 = disabled, 1 = fullscreen only, 2 = fullscreen + windowed, -1 = unknown/unavailable.
+    /// </summary>
+    public static int GetVrrMode()
+    {
+        if (!Available || _drsCreateSession is null || _drsLoadSettings is null || _drsGetSetting is null)
+            return -1;
+
+        IntPtr session = IntPtr.Zero, buffer = IntPtr.Zero;
+        try
+        {
+            if (_drsCreateSession(out session) != NVAPI_OK) return -1;
+            if (_drsLoadSettings(session) != NVAPI_OK) return -1;
+
+            buffer = Marshal.AllocHGlobal(NVDRS_SETTING_SIZE);
+
+            int mode = ReadVrrFromProfile(session, buffer, useBase: true);
+            if (mode < 0) mode = ReadVrrFromProfile(session, buffer, useBase: false);
+            return mode;
+        }
+        catch { return -1; }
+        finally
+        {
+            if (buffer != IntPtr.Zero) Marshal.FreeHGlobal(buffer);
+            if (session != IntPtr.Zero) { try { _drsDestroySession?.Invoke(session); } catch { } }
+        }
+    }
+
+    private static int ReadVrrFromProfile(IntPtr session, IntPtr buffer, bool useBase)
+    {
+        IntPtr profile;
+        int r;
+        if (useBase)
+        {
+            if (_drsGetBaseProfile is null) return -1;
+            r = _drsGetBaseProfile(session, out profile);
+        }
+        else
+        {
+            if (_drsGetCurrentGlobalProfile is null) return -1;
+            r = _drsGetCurrentGlobalProfile(session, out profile);
+        }
+        if (r != NVAPI_OK || profile == IntPtr.Zero) return -1;
+
+        // Zero the buffer, then set the struct version so NVAPI accepts it.
+        Marshal.Copy(new byte[NVDRS_SETTING_SIZE], 0, buffer, NVDRS_SETTING_SIZE);
+        Marshal.WriteInt32(buffer, 0, unchecked((int)NVDRS_SETTING_VER));
+
+        if (_drsGetSetting!(session, profile, VRR_MODE_ID, buffer) != NVAPI_OK)
+            return -1;
+
+        return Marshal.ReadInt32(buffer, NVDRS_SETTING_CURRENTVALUE_OFFSET);
+    }
+
     private static string? GetInterfaceVersion()
     {
         try
@@ -373,6 +466,15 @@ internal static class NvApi
 
         sb.AppendLine($"Driver version  : {GetDriverVersion() ?? "(unknown)"}");
         sb.AppendLine($"NVAPI interface : {GetInterfaceVersion() ?? "(unknown)"}");
+        int vrr = GetVrrMode();
+        string vrrText = vrr switch
+        {
+            0 => "0 = disabled",
+            1 => "1 = fullscreen only",
+            2 => "2 = fullscreen + windowed",
+            _ => "unknown (setting not found)"
+        };
+        sb.AppendLine($"Global VRR_MODE : {vrrText}");
         sb.AppendLine($"AdaptiveSync ver: 0x{MakeVersion<NV_GET_ADAPTIVE_SYNC_DATA_V1>(1):X} " +
                       $"(size {Marshal.SizeOf<NV_GET_ADAPTIVE_SYNC_DATA_V1>()})");
 

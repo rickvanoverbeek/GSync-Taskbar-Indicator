@@ -9,17 +9,13 @@ glance even when no game or app is running.
 | Icon | State | Meaning |
 |------|-------|---------|
 | 🟢 Green  | **Active**      | Variable refresh (G-Sync) is engaged **right now** — a game/app is presenting with VRR. |
-| 🟠 Amber  | **On (idle)**   | A G-Sync-capable display is present and ready, but VRR isn't engaged at the moment (e.g. sitting on the desktop). |
-| ⚪ Gray   | **Unavailable** | No NVIDIA GPU/driver, or no display reports G-Sync / adaptive-sync support. |
+| 🟠 Amber  | **On (idle)**   | G-Sync is enabled and a capable display is ready, but VRR isn't driving it at the moment (e.g. sitting on the desktop). |
+| ⚪ Gray   | **Off / N-A**   | G-Sync is turned off in the NVIDIA Control Panel / NVIDIA App, or no G-Sync-capable display is present. |
 
-> How "active" is detected: the indicator watches NVIDIA's adaptive-sync **flip counter**,
-> which only advances while variable refresh is actually driving a display. So **green means
-> G-Sync is genuinely working right now** (a game is presenting with VRR); on the desktop the
-> counter is idle, so you'll see **amber**.
->
-> Limitation: while idle, the driver reports the *same* data whether G-Sync is enabled or
-> disabled in the NVIDIA App — so both look like **amber** here. Green is the trustworthy
-> signal ("it's on and working"); amber just means "not driving VRR at the moment."
+> How it's detected: **green** comes from NVIDIA's adaptive-sync **flip counter**, which only
+> advances while variable refresh is actually driving a display — so green means G-Sync is
+> genuinely working right now. **Amber vs. gray** comes from the driver's global G-Sync switch
+> (the `VRR_MODE` setting): enabled → amber when idle, disabled → gray.
 
 Hover the icon for a summary, **double-click** it for a per-display breakdown, or
 right-click for the menu.
